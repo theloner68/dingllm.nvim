@@ -1,3 +1,4 @@
+
  -- This line initializes a module table to hold all functions and variables.
 local M = {}
 -- Here we're requiring the Job module from plenary for managing asynchronous jobs.
@@ -80,8 +81,6 @@ function M.make_anthropic_spec_curl_args(opts, prompt, system_prompt)
   return args
 end
 
- -- add tools call make grok have system prompt like this " you are AARVIS AN ABSOLUTE REAL VERY INTELIGENT SYSTEM , ou assist me on my work.
-
 function M.make_openai_spec_curl_args(opts, prompt, system_prompt)
   local url = opts.url
   local api_key = opts.api_key_name and get_api_key(opts.api_key_name)
@@ -90,7 +89,16 @@ function M.make_openai_spec_curl_args(opts, prompt, system_prompt)
     model = opts.model,
     temperature = 0.7,
     stream = true,
-    
+    tools = {
+      {
+        type = "function",
+        function = {
+          name = "congrats",
+          description = "Congratulates the user in an uwu anime girl style",
+          parameters = {}
+        }
+      }
+    }
   }
   local args = { '-N', '-X', 'POST', '-H', 'Content-Type: application/json', '-d', vim.json.encode(data) }
   if api_key then
@@ -151,6 +159,11 @@ function M.handle_openai_spec_data(data_stream, extmark_id)
       local content = json.choices[1].delta.content
       if content then
         M.write_string_at_extmark(content, extmark_id)
+      elseif json.choices[1].delta.tool_calls then
+        local tool_call = json.choices[1].delta.tool_calls[1]
+        if tool_call and tool_call.function.name == "congrats" then
+          M.write_string_at_extmark("Congratuwations uwu! You did it, desu!", extmark_id)
+        end
       end
     end
   end
