@@ -1,11 +1,17 @@
+
+ -- This line initializes a module table to hold all functions and variables.
 local M = {}
+-- Here we're requiring the Job module from plenary for managing asynchronous jobs.
 local Job = require 'plenary.job'
+-- Creates a unique namespace for Neovim buffer extmarks, used for tracking changes.
 local ns_id = vim.api.nvim_create_namespace 'dingllm'
 
+-- This function retrieves an API key from the environment variables.
 local function get_api_key(name)
   return os.getenv(name)
 end
 
+-- Retrieves all lines from the start of the buffer up to the current cursor position.
 function M.get_lines_until_cursor()
   local current_buffer = vim.api.nvim_get_current_buf()
   local current_window = vim.api.nvim_get_current_win()
@@ -17,6 +23,7 @@ function M.get_lines_until_cursor()
   return table.concat(lines, '\n')
 end
 
+-- This function captures the currently selected text in visual mode.
 function M.get_visual_selection()
   local _, srow, scol = unpack(vim.fn.getpos 'v')
   local _, erow, ecol = unpack(vim.fn.getpos '.')
@@ -52,6 +59,7 @@ function M.get_visual_selection()
   end
 end
 
+-- Constructs curl arguments for the Anthropic API, including API key and data formatting.
 function M.make_anthropic_spec_curl_args(opts, prompt, system_prompt)
   local url = opts.url
   local api_key = opts.api_key_name and get_api_key(opts.api_key_name)
@@ -81,6 +89,16 @@ function M.make_openai_spec_curl_args(opts, prompt, system_prompt)
     model = opts.model,
     temperature = 0.7,
     stream = true,
+    tools = {
+      {
+        type = "function",
+        function = {
+          name = "congrats",
+          description = "Congratulates the user in an uwu anime girl style",
+          parameters = {}
+        }
+      }
+    }
   }
   local args = { '-N', '-X', 'POST', '-H', 'Content-Type: application/json', '-d', vim.json.encode(data) }
   if api_key then
@@ -91,6 +109,7 @@ function M.make_openai_spec_curl_args(opts, prompt, system_prompt)
   return args
 end
 
+-- This function writes a string at the position of an extmark in the buffer.
 function M.write_string_at_extmark(str, extmark_id)
   vim.schedule(function()
     local extmark = vim.api.nvim_buf_get_extmark_by_id(0, ns_id, extmark_id, { details = false })
@@ -102,6 +121,7 @@ function M.write_string_at_extmark(str, extmark_id)
   end)
 end
 
+-- Determines the prompt to send to the LLM, either from visual selection or up to cursor.
 local function get_prompt(opts)
   local replace = opts.replace
   local visual_lines = M.get_visual_selection()
@@ -121,6 +141,7 @@ local function get_prompt(opts)
   return prompt
 end
 
+-- Processes streaming data from Anthropic API, writing text to the buffer.
 function M.handle_anthropic_spec_data(data_stream, extmark_id, event_state)
   if event_state == 'content_block_delta' then
     local json = vim.json.decode(data_stream)
@@ -130,6 +151,7 @@ function M.handle_anthropic_spec_data(data_stream, extmark_id, event_state)
   end
 end
 
+-- Processes streaming data from OpenAI API, similar to the Anthropic function.
 function M.handle_openai_spec_data(data_stream, extmark_id)
   if data_stream:match '"delta":' then
     local json = vim.json.decode(data_stream)
@@ -137,14 +159,21 @@ function M.handle_openai_spec_data(data_stream, extmark_id)
       local content = json.choices[1].delta.content
       if content then
         M.write_string_at_extmark(content, extmark_id)
+      elseif json.choices[1].delta.tool_calls then
+        local tool_call = json.choices[1].delta.tool_calls[1]
+        if tool_call and tool_call.function.name == "congrats" then
+          M.write_string_at_extmark("Congratuwations uwu! You did it, desu!", extmark_id)
+        end
       end
     end
   end
 end
 
+-- Sets up an autocommand group for managing LLM interactions.
 local group = vim.api.nvim_create_augroup('DING_LLM_AutoGroup', { clear = true })
 local active_job = nil
 
+-- Main function to invoke an LLM and stream the response into the editor.
 function M.invoke_llm_and_stream_into_editor(opts, make_curl_args_fn, handle_data_fn)
   vim.api.nvim_clear_autocmds { group = group }
   local prompt = get_prompt(opts)
@@ -201,4 +230,5 @@ function M.invoke_llm_and_stream_into_editor(opts, make_curl_args_fn, handle_dat
   return active_job
 end
 
+-- Returns the module table containing all the defined functions.
 return M
